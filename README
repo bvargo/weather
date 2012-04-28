@@ -18,6 +18,12 @@ weather [-v] 'location string'
 
 -v prints verbose descriptions of weather data.
 
+Requirements
+============
+ * Python
+ * lxml
+ * SOAPpy
+
 Known Issues
 ============
  * Only US-based addresses are supported.
