@@ -1,0 +1,386 @@
+#!/usr/bin/env python
+
+# Copyright (c) 2012, Brandon Vargo
+# All rights reserved.
+# 
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#     * Redistributions of source code must retain the above copyright
+#       notice, this list of conditions and the following disclaimer.
+#     * Redistributions in binary form must reproduce the above copyright
+#       notice, this list of conditions and the following disclaimer in the
+#       documentation and/or other materials provided with the distribution.
+#     * Neither the name of the <organization> nor the
+#       names of its contributors may be used to endorse or promote products
+#       derived from this software without specific prior written permission.
+# 
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL BRANDON VARGO BE LIABLE FOR ANY DIRECT,
+# INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+# OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+# NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+# EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+# A program for receiving the weather forecast from the US National Weather
+# Service. See README for more information.
+
+import os
+import sys
+import urllib
+import urllib2
+import StringIO
+from textwrap import TextWrapper
+
+from lxml import etree, objectify
+from SOAPpy import WSDL
+
+# returns a bold version of text using ansi characters
+def bold(text):
+   make_bold = "\033[1m"
+   reset = "\033[0;0m"
+   return make_bold + str(text) + reset
+
+# tests if an argument can be converted to an int safely
+def is_int(arg):
+   try:
+      arg = int(arg)
+      return True
+   except:
+      return False
+
+# tests if an argument can be converted to a float safely
+def is_float(arg):
+   try:
+      arg = float(arg)
+      return True
+   except:
+      return False
+
+# a custom exception type for weather
+class WeatherException(Exception):
+   def __init__(self, value):
+      self.parameter = value
+   def __str__(self):
+      return self.parameter
+
+# returns a WSDL server based on the national weather service WSDL file
+def get_soap_server():
+   WSDLFILE = os.path.dirname(__file__) + "/" + "ndfdXML.wsdl"
+   server = WSDL.Proxy(WSDLFILE)
+
+   return server
+
+# fetch the latitude and longitude given the zipcode
+# get_lat_long_from_zipcode should be used in the general case
+def fetch_lat_long_from_zipcode(zipcode):
+   try:
+      server = get_soap_server()
+
+      response = server.LatLonListZipCode(str(zipcode))
+      responseIO = StringIO.StringIO(response)
+
+      response_tree = objectify.parse(responseIO)
+
+      lat_long_list = response_tree.getroot().latLonList.text
+
+      lat_long_pair = lat_long_list.split(" ")[0].split(",")
+
+      return lat_long_pair
+   except:
+      raise WeatherException("Invalid zipcode or server error")
+
+# returns a latitude and longitude for a zipcode
+# this function differs from fetch_lat_long_from_zipcode in that it has a
+# local cache of zip code locations; a disk-based cache would be added here
+def get_lat_long_from_zipcode(zipcode):
+   # quick lookup of latitude/longitude
+   latlong = { 80401: (39.73890, -105.21500),
+               80443: (39.5791, -106.096),
+               80108: (39.3789, -104.851) }
+
+   if zipcode in latlong:
+      return latlong[zipcode]
+   else:
+      return fetch_lat_long_from_zipcode(zipcode)
+
+# get the latitude and longitude of a string location as a 2-tuple using the
+# NWS website search feature (not exposed via the API)
+# if the location could not be found, then a WeatherException is raised
+def get_lat_long_for_location(location):
+   try:
+      # create a request to the NWS HTTP server
+      # after the form is POSTed, the resulting URL will contain
+      # the latitude and longitude of the location, if the location could be
+      # found
+
+      # the post data to send
+      data = {"inputstring": location, "Go2": "Go"}
+      data = urllib.urlencode(data)
+
+      # the request object
+      url = "http://forecast.weather.gov/zipcity.php"
+      request = urllib2.Request(url, data)
+
+      # get the data and the url that was opened
+      response = urllib2.urlopen(request)
+      response_url = response.geturl()
+
+      # get the parameters from the response URL
+      response_parameters = dict()
+      response_url_parts = response_url.split("&")
+      for part in response_url_parts:
+         if "=" in part:
+            key, value = part.split("=", 1)
+            response_parameters[key] = value
+
+      # extract the latitude and longitude from the URL
+      lat_key = "textField1"
+      lon_key = "textField2"
+      if lat_key in response_parameters and lon_key in response_parameters:
+         return response_parameters[lat_key], response_parameters[lon_key]
+
+      # try to extract using a different set of keys, depending on the input
+      lat_key = "lat"
+      lon_key = "lon"
+      if lat_key in response_parameters and lon_key in response_parameters:
+         return response_parameters[lat_key], response_parameters[lon_key]
+
+      # could not find location from URL
+      raise WeatherException("Could not find location: %s" % (location))
+   except:
+      raise WeatherException("Could not find location: %s" % (location))
+
+# returns the location text from a data segment
+def parse_location(data):
+   return data.location.description.text
+
+# returns the elevation as a string a from a data segment
+def parse_elevation(data):
+   return data.location.height.text
+
+# returns the weather XML parse tree for the specificed latitude and longitude
+def get_weather_xml(latitude, longitude):
+   # download the weather
+   try:
+      url = "http://forecast.weather.gov/MapClick.php?lat=%s&lon=%s&FcstType=dwml" % (latitude, longitude)
+      document = urllib2.urlopen(url, timeout=10)
+      tree = objectify.parse(document)
+   except:
+      raise WeatherException("Weather data could not be fetched")
+
+   if not isinstance(tree.getroot(), objectify.ObjectifiedElement):
+      raise WeatherException("Weather data could not be parsed")
+
+   return tree
+
+# prints the weather, given the longitude and latitude
+def printWeather(latitude, longitude, verbose=False):
+   tree = get_weather_xml(latitude, longitude)
+   data = tree.getroot().data
+
+   #
+   # store all the timelayouts
+   #
+
+   # map timelayout_name -> list of times (in order)
+   times_for_layout = {}
+   # map time -> time_text
+   time_names = {}
+
+   for time_layout in data.iterchildren(tag="time-layout"):
+      time_layout_name = getattr(time_layout, "layout-key")
+      times_for_layout[time_layout_name] = []
+
+      for start_time in time_layout.iterchildren(tag="start-valid-time"):
+         # name of particular time
+         name = start_time.get("period-name")
+         # particular time
+         time = start_time.text
+
+         # append the time
+         times_for_layout[time_layout_name].append(time)
+
+         # set the name of the time
+         time_names[time] = name
+
+   #
+   # figure out the high/low temperature for each time period
+   #
+
+   # stores max and min temperatures
+   # key is time, value is temperature
+   tmax = {}
+   tmin = {}
+
+   # gets the two temperature nodes, for night and day
+   temperature_nodes = list(data.parameters.iterchildren(tag="temperature"))
+
+   for tnode in temperature_nodes:
+      time_layout = tnode.get("time-layout")
+
+      m = None
+      if tnode.get("type") == "maximum":
+         m = tmax
+      elif tnode.get("type") == "minimum":
+         m = tmin
+
+      for time, value in zip(times_for_layout[time_layout], tnode.iterchildren(tag="value")):
+         m[time] = int(value.text)
+
+   #
+   # probability of precipitation
+   #
+
+   # map time -> precipitation %
+   precipitation = {}
+
+   timescale = getattr(data.parameters, "probability-of-precipitation").get("time-layout")
+   for time, node in zip(times_for_layout[timescale], getattr(data.parameters, "probability-of-precipitation").iterchildren(tag="value")):
+      if node.text:
+         precipitation[time] = int(node.text)
+
+   #
+   # get the timeperiod names, short forecasts, and long forecast for the
+   # nights/days
+   #
+
+   short_forecasts_timescale = data.parameters.weather.get("time-layout")
+   short_forecasts = map(lambda n: n.get("weather-summary"), data.parameters.weather.iterchildren(tag="weather-conditions"))
+   worded_forecasts_timescale = data.parameters.wordedForecast.get("time-layout")
+   worded_forecasts = map(lambda n: n.text, data.parameters.wordedForecast.iterchildren(tag='text'))
+
+   if short_forecasts_timescale != worded_forecasts_timescale:
+      raise WeatherException("Parsing error: timescales between short and worded do not match")
+   else:
+      timescale = short_forecasts_timescale
+
+   #
+   # print the weather
+   #
+
+   # for wrapping text
+   wrapper = TextWrapper(width=80, expand_tabs=False)
+
+   #
+   # print the location header
+   #
+   location = parse_location(data)
+   elevation = parse_elevation(data)
+   print bold("Weather for " + location),
+   print "- (" + str(latitude) + ", " + str(longitude) + ")",
+   print "- Elevation:", elevation
+   print '=' * 80
+   print
+
+   #
+   # print the forecast
+   #
+   for sforecast, forecast, time in zip(short_forecasts, worded_forecasts, times_for_layout[timescale]):
+      time_name = time_names[time]
+      print bold(time_name), "-",
+
+      if time in tmax:
+         print "High:", tmax[time], "-",
+      if time in tmin:
+         print "Low:", tmin[time], "-",
+
+      print sforecast,
+
+      if time in precipitation:
+         print "(" + str(precipitation[time]) + "%)"
+      else:
+         print
+
+      if verbose:
+         print '\n'.join(wrapper.wrap(forecast))
+         print
+
+   #
+   # print weather hazards
+   #
+   if len(list(data.parameters.iterchildren(tag="hazards"))) != 0:
+      print '=' * 80
+      print bold("Hazards:")
+      print '=' * 80
+      print
+   for node in data.parameters.iterchildren(tag="hazards"):
+      for hazard in getattr(node, "hazard-conditions").iterchildren(tag="hazard"):
+         print bold(hazard.get("headline"))
+         print hazard.hazardTextURL.text
+         print
+
+
+if __name__ == "__main__":
+   # default is no verbosity
+   verbose = False
+
+   # arguments
+   args = sys.argv
+
+   # pop the first element (the name of the program) off of the arguments
+   args.pop(0)
+
+   # check for no arguments given
+   if len(args) == 0:
+      print "USAGE: weather [-v] zipcode"
+      print "       weather [-v] latitude longitude"
+      print "       weather [-v] 'location string'"
+      sys.exit(1)
+
+   # try to get the weather
+   try:
+      # check for a verbose switch
+      if args[0] == "-v":
+         # turn on verbosity
+         verbose = True
+         # remove the -v from the arguments
+         args.pop(0)
+
+      # the latitude and longitude have not been parsed yet
+      found_lat_long = False
+
+      # check for a zipcode
+      # a zipcode is an integer that is 5 digits long and it is the only
+      # argument
+      if len(args) == 1 and len(args[0]) == 5 and is_int(args[0]):
+         try:
+            latitude, longitude = get_lat_long_from_zipcode(int(args[0]))
+            found_lat_long = True
+         except Exception as e:
+            # if there is an error, let the next method try searching on the
+            # input
+            pass
+
+      # check for a latitude and longitude pair
+      # a latitude and longitude is a pair of floating point numbers
+      if not found_lat_long and len(args) == 2 and \
+            is_float(args[0]) and is_float(args[1]):
+         latitude, longitude = float(args[0]), float(args[1])
+         found_lat_long = True
+
+      # if the latitude and longitude could not be found yet, then fallback to
+      # searching by the joining of all the arguments
+      if not found_lat_long:
+         location = ' '.join(args)
+         latitude, longitude = get_lat_long_for_location(location)
+         found_lat_long = True
+
+      # if there is no latitude and longitude yet, then there is an error
+      if not found_lat_long:
+         raise WeatherException("Could not find latitude and longitude location")
+
+      # print the weather
+      printWeather(latitude, longitude, verbose)
+
+   except WeatherException as e:
+      print str(e)
+      sys.exit(1)
+   except Exception as e:
+      print "There is an error in the program."
+      print "Error message:",
+      print str(e)
+      sys.exit(1)
