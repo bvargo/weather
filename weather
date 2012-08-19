@@ -118,7 +118,7 @@ def get_lat_long_for_location(location):
       # found
 
       # the post data to send
-      data = {"inputstring": location, "Go2": "Go"}
+      data = {"inputstring": location, "btnSearch": "Go"}
       data = urllib.urlencode(data)
 
       # the request object
