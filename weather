@@ -277,8 +277,8 @@ def printWeather(latitude, longitude, verbose=False):
    location = parse_location(data)
    elevation = parse_elevation(data)
    print bold("Weather for " + location),
-   print "- (" + str(latitude) + ", " + str(longitude) + ")",
-   print "- Elevation:", elevation
+   print "- (%2.4f, %2.4f)" % (latitude, longitude),
+   print "- Elevation: %s" % (elevation)
    print '=' * 80
    print
 
