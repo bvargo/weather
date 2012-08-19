@@ -195,6 +195,8 @@
    <xsd:element name="tstmcat"      type="xsd:boolean"/>
    <xsd:element name="wgust"        type="xsd:boolean"/>
    <xsd:element name="iceaccum"     type="xsd:boolean"/>
+   <xsd:element name="maxrh"        type="xsd:boolean"/>
+   <xsd:element name="minrh"        type="xsd:boolean"/>
   </xsd:all>
  </xsd:complexType>
 
@@ -316,7 +318,6 @@
    <part name="listLatLon"        type="typens:listLatLonType" />
    <part name="requestedTime"     type="xsd:dateTime" />
    <part name="featureType"       type="typens:featureTypeType" />
-   <part name="Unit"              type="typens:unitType" />   
    <part name="weatherParameters" type="typens:weatherParametersType" />
 </message>
 
@@ -330,7 +331,6 @@
    <part name="endTime"           type="xsd:dateTime" />
    <part name="compType"          type="typens:compTypeType" />
    <part name="featureType"       type="typens:featureTypeType" />
-   <part name="Unit"              type="typens:unitType" />   
    <part name="propertyName"      type="xsd:string" />
 </message>
 
