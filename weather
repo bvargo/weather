@@ -34,6 +34,7 @@ import urllib
 import urllib2
 import StringIO
 from textwrap import TextWrapper
+import traceback
 
 from lxml import etree, objectify
 from SOAPpy import WSDL
@@ -388,4 +389,6 @@ if __name__ == "__main__":
       print "There is an error in the program."
       print "Error message:",
       print str(e)
+      print "Stack trace:"
+      traceback.print_exc()
       sys.exit(1)
