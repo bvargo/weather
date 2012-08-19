@@ -156,7 +156,12 @@ def get_lat_long_for_location(location):
 
 # returns the location text from a data segment
 def parse_location(data):
-   return data.location.description.text
+   if hasattr(data.location, "description"):
+      return data.location.description.text
+   elif hasattr(data.location, "area-description"):
+      return getattr(data.location, "area-description").text
+   else:
+      return "Unknown location"
 
 # returns the elevation as a string a from a data segment
 def parse_elevation(data):
