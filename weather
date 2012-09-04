@@ -185,6 +185,8 @@ def get_weather_xml(latitude, longitude):
 
 # prints the weather, given the longitude and latitude
 def printWeather(latitude, longitude, verbose=False):
+   latitude = float(latitude)
+   longitude = float(longitude)
    tree = get_weather_xml(latitude, longitude)
    data = tree.getroot().data
 
@@ -235,7 +237,7 @@ def printWeather(latitude, longitude, verbose=False):
          m = tmin
 
       for time, value in zip(times_for_layout[time_layout], tnode.iterchildren(tag="value")):
-         m[time] = int(value.text)
+         m[time] = value.text
 
    #
    # probability of precipitation
