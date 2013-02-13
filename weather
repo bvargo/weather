@@ -200,7 +200,7 @@ def printWeather(latitude, longitude, verbose=False):
    time_names = {}
 
    for time_layout in data.iterchildren(tag="time-layout"):
-      time_layout_name = getattr(time_layout, "layout-key")
+      time_layout_name = str(getattr(time_layout, "layout-key"))
       times_for_layout[time_layout_name] = []
 
       for start_time in time_layout.iterchildren(tag="start-valid-time"):
